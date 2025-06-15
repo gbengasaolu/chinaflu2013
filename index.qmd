@@ -1,0 +1,210 @@
+---
+title: "Influenza A H7N9 in China, 2013"
+author: "Olugbenga Asaolu"
+format: 
+  dashboard:
+    embed-resources: true
+theme: lux
+---
+
+::: {.hidden}
+
+```{r}
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, outbreaks, bslib, bsicons, shiny, 
+               rgeoboundaries, plotly, htmltools, reactable)
+
+# view data
+head(outbreaks::fluH7N9_china_2013)
+```
+```{r}
+# Total number of cases in the data set
+total_cases <- nrow(fluH7N9_china_2013)
+total_cases
+total_deaths<-sum(fluH7N9_china_2013$outcome == "Death",  na.rm = TRUE) # outcome coded "Death"
+total_deaths
+total_hospitalized<-sum(!is.na(fluH7N9_china_2013$date_of_hospitalisation))# non-missing hospitalisation dates
+total_hospitalized 
+```
+```{r}
+china_plot<-fluH7N9_china_2013 %>% 
+  count(province, name = "cases") %>%          # tally cases per province
+  ggplot(aes(x = reorder(province, cases),     # order bars by frequency
+             y = cases)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +                               # put provinces on the y-axis
+  labs(
+    title = "Number of Cases by Province",
+    x     = " ",
+    y     = "Number of Cases"
+  ) +
+  theme_minimal(base_size = 12)
+
+# convert to an interactive plotly object
+interactive_plot <- ggplotly(china_plot, tooltip = "text")
+
+interactive_plot    # prints (or returns) the interactive bar chart
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+pacman::p_load(outbreaks, rgeoboundaries, plotly)
+
+### MAP OF CASES PER PROVINCE
+province_summary <- fluH7N9_china_2013 %>% 
+  group_by(province) %>% 
+  summarise(total_cases = n()) 
+
+china_map <- rgeoboundaries::gb_adm1("china")
+
+# Check the keys to see if join will be successful
+setdiff(province_summary$province, china_map$shapeName)
+setdiff(china_map$shapeName, province_summary$province)
+# Some work to be done to harmonize these
+
+china_map <- china_map %>%
+  # Remove the strings Province, Municipality and Autonomous Region 
+  # to allow matching
+  mutate(province = str_trim(
+    str_remove(shapeName, "Province|Municipality|Autonomous Region")
+  ))
+
+# Check if join will work fine
+setdiff(province_summary$province, china_map$province)
+
+# Fix Guangdong, which based on a quick Google is actually Guangzhou
+china_map <- china_map %>% 
+  mutate(province = if_else(province == "Guangzhou", "Guangdong", province)) 
+  
+# Check again
+setdiff(province_summary$province, china_map$province)
+
+# Now join
+china_map_joined <- 
+  left_join(china_map, province_summary, by = "province") %>% 
+  # Create tooltip label 
+  mutate(tooltip_label = paste0(province, ": ", total_cases))
+
+china_map_plot <- ggplot(china_map_joined) +
+  geom_sf(aes(fill = total_cases, text = tooltip_label)) + 
+  theme_void() +
+  labs(fill = "Number of Cases", title = "Map of Provinces by Number of Cases") + 
+  theme(legend.position = "none")
+
+china_map_plot_ggplotly <- 
+  ggplotly(china_map_plot, tooltip = "text")
+china_map_plot_ggplotly
+
+```
+
+
+:::
+
+# HOME 
+## Row 1 {height=25%}
+
+```{r}
+value_box(
+  title = "Total Number of Cases",
+  value = total_cases,
+  showcase = bsicons::bs_icon("heart"),
+  theme = value_box_theme(bg = "#518fd6"),
+)
+```
+
+```{r}
+value_box(
+  title = "Total Deaths",
+  value = total_deaths,
+  showcase = bsicons::bs_icon("thermometer"),
+  theme = value_box_theme(bg = "#214773")
+)
+```
+
+```{r}
+value_box(
+  title = "Total Hospitalizations",
+  value = total_hospitalized,
+  showcase = bsicons::bs_icon("graph-up"),
+  theme = value_box_theme(bg = "#3f71ab")
+)
+```
+
+
+## Row 2 {height=75%}
+
+### {width=50%}
+
+```{r}
+china_map_plot_ggplotly
+```
+
+### {width=50%}
+
+```{r}
+interactive_plot    
+```
+
+
+
+# DOWNLOAD DATA
+The data used in this dashboard is shown below and can be downloaded as a CSV. 
+```{r}
+# install/load packages --------------------------------------------------------
+if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
+pacman::p_load(
+  htmltools,         # wrap reactable + button in a browsable tag list
+  reactable          # interactive tables
+)
+
+# -----------------------------------------------------------------------------#
+#  render an interactive table of the flu data and add a "Download as CSV"
+#  button that respects filters / searches the user applies in-browser
+# -----------------------------------------------------------------------------#
+
+htmltools::browsable(
+  tagList(
+    reactable(
+      fluH7N9_china_2013,
+      elementId  = "flu-table",   # <- used by the JS download helper
+      searchable = TRUE,
+      filterable = TRUE,
+      defaultPageSize = 10,
+      highlight     = TRUE,
+      bordered      = TRUE,
+      striped       = TRUE,
+      compact       = TRUE,
+      columns = list(              # a couple of niceties
+        date_of_onset           = colDef(name = "Onset"),
+        date_of_hospitalisation = colDef(name = "Hospitalised"),
+        date_of_outcome         = colDef(name = "Outcome Date"),
+        outcome                 = colDef(name = "Outcome", filterable = TRUE),
+        age                     = colDef(name = "Age", align = "right")
+      )
+    ),
+    
+    # HTML button that triggers the CSV download
+    tags$button(
+      "Download as CSV",
+      onclick = "Reactable.downloadDataCSV('flu-table')",
+      style   = "margin-top: 10px; padding: 6px 12px;"
+    )
+  )
+)
+```
+
+# ABOUT
+
+This dashboard analyzes data on the 2013 influenza A H7N9 outbreak in China.
+
+Key points:
+
+- There were `r total_cases` total reported cases
+- `r total_hospitalized` cases were hospitalized  
+- `r total_deaths` deaths occurred
+- The most affected provinces were Zhejiang, Shanghai and Jiangsu
+
+The data is sourced from a Dryad dataset by Kucharski et al (2014) who collated case details from various reports. This dashboard provides an interactive visualization of the outbreak's geographical distribution and key statistics.
+
+Reference: 
+Kucharski, A., Mills, H., Pinsent, A., Fraser, C., Kerkhove, M. V., Donnelly, C. A., & Riley, S. (2014). Distinguishing between reservoir exposure and human-to-human transmission for emerging pathogens using case onset data. *PLOS Currents Outbreaks*, 1. https://doi.org/10.1371/currents.outbreaks.e1473d9bfc99d080ca242139a06c455f
